@@ -106,6 +106,20 @@ const createChatHistorieModel = async (payload) => {
   return response.data.data
 }
 
+const getChatHistorieModel = async (chatId) => {
+  const response = await directusApi.get(`/items/chat_histories`, {
+    params: {
+      filter: {
+        chat_id: {
+          _eq: chatId
+        }
+      }
+    }
+  })
+
+  return response.data.data
+}
+
 //  SERVICES
 //  EVOLUTION SERVIES
 const createInstance = async (instanceName) => {
@@ -206,8 +220,6 @@ const upsertMessage = async (instanceId, data) => {
   
   if (!instance) return;
 
-  // if(instance.is_disable) return;
-
   const message = data.message.conversation;
 
   const remoteJid = data.key.remoteJid;
@@ -244,8 +256,7 @@ const upsertMessage = async (instanceId, data) => {
     content: message,
   });
 
-
-  //PARTE DO AGENTE DE IA
+  //PARTE DO AGENTE DE IA CASO NECESSITE NO FUTURO
   
   // const responseText = await getAgentResponse(agent.id, remoteJid, message, instanceId);
 
@@ -287,6 +298,74 @@ const distribuition = async (event, instance, data) => {
   }
 }
 
+// OPEN AI
+
+export const getAgentResponse = async (chatId) => {
+  const behavior = `Você é um agente de atendimento via WhatsApp especializado em qualificação e conversão de leads.  
+Seu trabalho é analisar toda a conversa entre o cliente e a empresa e gerar a melhor resposta possível para o próximo envio.
+
+INSTRUÇÕES IMPORTANTES:
+1. Você sempre deve responder como se fosse o atendente oficial da empresa.
+2. Use a descrição oficial da empresa abaixo para entender o que ela faz e responder com precisão.
+3. Seja educado, consultivo e objetivo. Escreva de forma natural, humanizada e simples — estilo WhatsApp.
+4. Nunca escreva respostas longas demais. Priorize clareza e mensagens curtas.
+5. Nunca invente informações. Se não souber algo, peça de forma educada para o cliente explicar melhor.
+6. Se o cliente demonstrar interesse em compra, serviço ou orçamento, conduza o atendimento para a conversão.
+7. Se o cliente estiver confuso, perdido ou falando fora do contexto, traga a conversa de volta com cordialidade.
+8. Sempre gere apenas **a resposta ideal** para ser enviada ao cliente — não explique seu raciocínio.
+9. Se o cliente estiver agressivo ou irônico, mantenha a calma e conduza de forma profissional e empática.
+10. Caso o cliente envie algo como “oi”, “boa tarde”, “alô”, responda cumprimentando e puxando o contexto do serviço da empresa.
+11. Se o cliente fizer perguntas específicas sobre preços/entregas/horários e a empresa não forneceu esses dados na descrição, responda pedindo detalhes específicos e oferecendo ajuda.
+
+Sua tarefa agora:  
+A partir da conversa completa fornecida abaixo nos messages, gere a melhor resposta única para enviar ao cliente no WhatsApp.
+`;
+//   const behavior = `Você é um agente de atendimento via WhatsApp especializado em qualificação e conversão de leads.  
+// Seu trabalho é analisar toda a conversa entre o cliente e a empresa e gerar a melhor resposta possível para o próximo envio.
+
+// INSTRUÇÕES IMPORTANTES:
+// 1. Você sempre deve responder como se fosse o atendente oficial da empresa.
+// 2. Use a descrição oficial da empresa abaixo para entender o que ela faz e responder com precisão.
+// 3. Seja educado, consultivo e objetivo. Escreva de forma natural, humanizada e simples — estilo WhatsApp.
+// 4. Nunca escreva respostas longas demais. Priorize clareza e mensagens curtas.
+// 5. Nunca invente informações. Se não souber algo, peça de forma educada para o cliente explicar melhor.
+// 6. Se o cliente demonstrar interesse em compra, serviço ou orçamento, conduza o atendimento para a conversão.
+// 7. Se o cliente estiver confuso, perdido ou falando fora do contexto, traga a conversa de volta com cordialidade.
+// 8. Sempre gere apenas **a resposta ideal** para ser enviada ao cliente — não explique seu raciocínio.
+// 9. Se o cliente estiver agressivo ou irônico, mantenha a calma e conduza de forma profissional e empática.
+// 10. Caso o cliente envie algo como “oi”, “boa tarde”, “alô”, responda cumprimentando e puxando o contexto do serviço da empresa.
+// 11. Se o cliente fizer perguntas específicas sobre preços/entregas/horários e a empresa não forneceu esses dados na descrição, responda pedindo detalhes específicos e oferecendo ajuda.
+
+// DESCRIÇÃO DA EMPRESA (informação confiável e prioridade máxima):
+// [INSIRA A DESCRIÇÃO DA EMPRESA AQUI]
+
+// Sua tarefa agora:  
+// A partir da conversa completa fornecida abaixo nos messages, gere a melhor resposta única para enviar ao cliente no WhatsApp.
+// `;
+
+  const chatHistories = await getChatHistorieModel(chatId);
+
+  const chatHistoriesParsed = chatHistories.map((chat) => {
+    return {
+      role: chat.role,
+      content: chat.content || "",
+    };
+  });
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: behavior },
+      ...chatHistoriesParsed
+    ],
+  });
+
+  const messageResponse = response.choices[0].message;
+
+  return messageResponse.content;
+}
+
+
 const app = express();
 
 app
@@ -315,6 +394,16 @@ app
     const instance = await getQrCodeToConnect(req.user.id)
 
     return res.send(instance);
+  } catch (error) {
+    next(error);
+  }
+})
+
+.get("/ia/suggestion/chat/:id", getUserMiddleware, async (req, res, next) => {
+  try {
+    const suggestion = await getAgentResponse(req.params.id)
+
+    return res.send(suggestion);
   } catch (error) {
     next(error);
   }
